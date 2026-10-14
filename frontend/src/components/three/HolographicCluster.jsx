@@ -173,11 +173,11 @@ export default function HolographicCluster({ height = '360px' }) {
 
     // Animation Loop
     let animationFrameId;
-    let clock = new THREE.Clock();
+    let clock = new THREE.Timer()
 
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
-      const elapsedTime = clock.getElapsedTime();
+      const elapsedTime = clock.getElapsed();
 
       // Gentle cluster rotation
       clusterGroup.rotation.y = elapsedTime * 0.15;

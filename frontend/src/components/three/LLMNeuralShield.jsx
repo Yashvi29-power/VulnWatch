@@ -83,11 +83,11 @@ export default function LLMNeuralShield({ height = '300px', isScanning = false, 
     scene.add(cyanLight);
 
     let animationFrameId;
-    let clock = new THREE.Clock();
+    let clock = new THREE.Timer();
 
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
-      const elapsed = clock.getElapsedTime();
+      const elapsed = clock.getElapsed();
 
       neuralGroup.rotation.y = elapsed * 0.4;
       neuralGroup.rotation.x = Math.sin(elapsed * 0.3) * 0.2;
