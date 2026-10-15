@@ -3,7 +3,7 @@
  * Connects to FastAPI Backend with full error handling and auto-reconnect
  */
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 async function fetchJSON(endpoint, options = {}) {
   try {

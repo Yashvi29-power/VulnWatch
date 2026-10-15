@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { api } from '../services/api';
 import confetti from 'canvas-confetti';
 
@@ -24,11 +24,23 @@ export function VulnProvider({ children }) {
   const [isAutoScanning, setIsAutoScanning] = useState(true);
   const [isDynamicScanning, setIsDynamicScanning] = useState(false);
 
+  // Shared AudioContext singleton — created once on first user interaction
+  const audioCtxRef = React.useRef(null);
+  const getAudioCtx = useCallback(() => {
+    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => {});
+    }
+    return audioCtxRef.current;
+  }, []);
+
   // Trigger cyber audio sound effect
   const playCyberSound = useCallback((type = 'beep') => {
     if (!soundEnabled) return;
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getAudioCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -59,9 +71,9 @@ export function VulnProvider({ children }) {
         osc.stop(ctx.currentTime + 0.08);
       }
     } catch (e) {
-      // Audio context might be restricted before user gesture
+      // Audio context may be restricted before first user gesture
     }
-  }, [soundEnabled]);
+  }, [soundEnabled, getAudioCtx]);
 
   const showToast = useCallback((msg, type = 'info') => {
     setToastMessage({ text: msg, type, id: Date.now() });

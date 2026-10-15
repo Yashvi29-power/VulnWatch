@@ -10,7 +10,7 @@ export default function ContainerManager() {
   const { 
     containers, selectedContainerId, setSelectedContainerId, 
     handleIsolateContainer, handleRestoreContainer, handleSimulateAttack, 
-    setActiveTab, showToast 
+    setActiveTab, showToast, refreshAll 
   } = useVulnStore();
 
   const [sbom, setSbom] = useState(null);
@@ -78,7 +78,7 @@ export default function ContainerManager() {
       showToast(`Workload ${newContainerName} registered and SBOM extracted!`, 'success');
       setNewContainerName('');
       setNewImageName('');
-      window.location.reload();
+      await refreshAll();
     } catch (err) {
       showToast(`Registration failed: ${err.message}`, 'error');
     } finally {

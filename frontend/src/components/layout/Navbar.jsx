@@ -9,7 +9,7 @@ export default function Navbar() {
   const { 
     overview, refreshAll, isLoading, isCopilotOpen, setIsCopilotOpen, 
     soundEnabled, setSoundEnabled, handleSimulateAttack, selectedContainerId,
-    toastMessage 
+    toastMessage, activeTab, setActiveTab 
   } = useVulnStore();
 
   const [showTeamModal, setShowTeamModal] = useState(false);
@@ -118,8 +118,15 @@ export default function Navbar() {
 
             {/* AI Security Copilot Button (Review feedback requirement) */}
             <button
-              onClick={() => setIsCopilotOpen(!isCopilotOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium rounded-lg bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-400/40 text-indigo-300 cyber-glow-purple transition-colors cursor-pointer"
+              onClick={() => {
+                setActiveTab('ai-remediation');
+                setIsCopilotOpen(true);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium rounded-lg border transition-colors cursor-pointer ${
+                isCopilotOpen && activeTab === 'ai-remediation'
+                  ? 'bg-indigo-900 border-indigo-400/60 text-indigo-200 cyber-glow-purple'
+                  : 'bg-indigo-950/80 hover:bg-indigo-900 border-indigo-400/40 text-indigo-300 cyber-glow-purple'
+              }`}
             >
               <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-spin" style={{ animationDuration: '6s' }} />
               <span>AI Copilot</span>

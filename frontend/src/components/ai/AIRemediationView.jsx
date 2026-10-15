@@ -9,7 +9,7 @@ import {
 export default function AIRemediationView() {
   const { 
     remediations, containers, selectedContainerId, 
-    handleApplyRemediation, isLoading, showToast 
+    handleApplyRemediation, isLoading, showToast, refreshAll 
   } = useVulnStore();
 
   const [chatInput, setChatInput] = useState('');
@@ -62,7 +62,7 @@ export default function AIRemediationView() {
     try {
       await api.generateRemediation(containerId);
       showToast(`AI Remediation Plan synthesized for ${containerId}!`, 'success');
-      window.location.reload();
+      await refreshAll();
     } catch (err) {
       showToast(`Generation failed: ${err.message}`, 'error');
     } finally {
