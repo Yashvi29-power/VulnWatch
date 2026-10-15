@@ -1,7 +1,8 @@
 {
-  "name": "frontend",
+  "name": "vulnwatch-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "VulnWatch - Continuous Vulnerability Monitoring & Runtime Behavior Analysis for Containerized Applications",
   "type": "module",
   "scripts": {
     "dev": "vite",
