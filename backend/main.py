@@ -5,11 +5,25 @@ Domain: CyberSecurity & DevOps
 """
 
 import os
+import logging
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import Optional, List, Dict, Any
+from pydantic import BaseModel
+
+# Load .env before anything else (GEMINI_API_KEY, ALLOWED_ORIGINS, etc.)
+load_dotenv()
+
+# Structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("vulnwatch")
 
 from models import (
     Container, ContainerStatusEnum, SBOMReport, CVERecord,
@@ -33,14 +47,30 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for React frontend
+# CORS — allow configuring origins via env var for production deployments
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def on_startup():
+    logger.info("VulnWatch backend starting — CORS origins: %s", ALLOWED_ORIGINS)
+    logger.info("Gemini AI key configured: %s", bool(os.getenv('GEMINI_API_KEY')))
+    logger.info("Database seeded: %d containers, %d CVEs, %d probes",
+                len(db.containers), len(db.cve_database), len(db.llm_probe_results))
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    logger.info("VulnWatch backend shutting down.")
 
 
 @app.get("/")
@@ -56,7 +86,20 @@ def root():
 
 @app.get("/api/health")
 def health():
-    return {"status": "healthy", "service": "vulnwatch-backend", "engine_version": "1.0.0"}
+    """Enhanced health check with live data store stats"""
+    return {
+        "status": "healthy",
+        "service": "vulnwatch-backend",
+        "engine_version": "1.0.0",
+        "ai_copilot": "gemini-live" if os.getenv("GEMINI_API_KEY") else "built-in-heuristic",
+        "data_store": {
+            "containers": len(db.containers),
+            "cve_records": len(db.cve_database),
+            "runtime_events": len(db.runtime_events),
+            "llm_probes": len(db.llm_probe_results),
+            "remediation_plans": len(db.remediations),
+        }
+    }
 
 
 # ---------------- 1. Overview & Unified Correlation ----------------
@@ -262,11 +305,20 @@ def get_llm_probe_history(target_id: Optional[str] = None):
     return LLMScannerService.get_probe_history(target_id)
 
 
+class LLMProbeRequest(BaseModel):
+    target_id: str
+    probe_name: Optional[str] = None
+    custom_payload: Optional[str] = None
+
 @app.post("/api/llm/run-probe")
-def run_llm_probe(target_id: str, probe_name: Optional[str] = None, custom_payload: Optional[str] = None):
+def run_llm_probe(request: LLMProbeRequest):
     """Execute dynamic Garak adversarial probe (Prompt injection, jailbreak, leakage)"""
     try:
-        result = LLMScannerService.run_dynamic_probe(target_id, probe_name, custom_payload)
+        result = LLMScannerService.run_dynamic_probe(
+            request.target_id, request.probe_name, request.custom_payload
+        )
+        logger.info("Garak probe executed: %s on target %s — passed=%s",
+                    result.probe_name, request.target_id, result.passed)
         return {"success": True, "probe_result": result}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

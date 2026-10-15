@@ -9,11 +9,14 @@ Implements:
 
 import os
 import uuid
+import logging
 import httpx
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 from models import RemediationPlan, AIChatRequest, AIChatResponse, SeverityEnum
 from database import db
+
+logger = logging.getLogger("vulnwatch.ai_copilot")
 
 
 class AICopilotService:
@@ -46,8 +49,8 @@ class AICopilotService:
                             referenced_cves=["CVE-2021-44228", "CVE-2022-3602"],
                             mitre_tags=["T1059 (Command Execution)", "T1071 (C2)"]
                         )
-            except Exception:
-                pass  # Fallback to rich built-in cyber expert system
+            except Exception as e:
+                logger.warning("Gemini API call failed, falling back to built-in engine: %s", e)
 
         # Built-in Intelligent Cybersecurity Reasoning Engine
         if "log4j" in user_query or "cve-2021-44228" in user_query or "payment" in user_query:
