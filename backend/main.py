@@ -8,7 +8,7 @@ import os
 import logging
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import Optional, List, Dict, Any
@@ -39,6 +39,7 @@ from services.llm_scanner import LLMScannerService
 from services.correlation_engine import CorrelationEngineService
 from services.ai_copilot import AICopilotService
 from services.integrations import IntegrationService
+from services.docker_service import DockerIntegrationService
 
 
 app = FastAPI(
@@ -174,6 +175,54 @@ def register_container(name: str, image: str):
     db.sboms[cid] = sbom
     new_cnt.packages_count = len(sbom.packages)
     return {"success": True, "container": new_cnt, "sbom": sbom}
+
+
+@app.post("/api/containers/upload-manifest")
+async def upload_manifest(
+    file: UploadFile = File(...),
+    container_name: Optional[str] = Form(None),
+    image_name: Optional[str] = Form(None)
+):
+    """
+    Upload real Dockerfile, requirements.txt, package.json, or SBOM JSON for dynamic scanning.
+    Parses real packages, queries NVD CVEs, and registers workload in VulnWatch.
+    """
+    try:
+        content_bytes = await file.read()
+        content_str = content_bytes.decode("utf-8", errors="replace")
+        target_name = container_name.strip() if container_name and container_name.strip() else file.filename.split(".")[0]
+        target_img = image_name.strip() if image_name and image_name.strip() else f"manifest:{file.filename}"
+
+        result = DockerIntegrationService.process_and_register_manifest(
+            container_name=target_name,
+            image_name=target_img,
+            filename=file.filename,
+            content=content_str
+        )
+        return result
+    except Exception as e:
+        logger.error("Failed to process uploaded manifest: %s", e)
+        raise HTTPException(status_code=400, detail=f"Failed to scan manifest: {str(e)}")
+
+
+# ---------------- 2b. Docker Daemon Live Inspection ----------------
+
+@app.get("/api/docker/daemon-status")
+def get_docker_daemon_status():
+    """Get status of local Docker daemon (connected / disconnected)"""
+    return DockerIntegrationService.get_daemon_status()
+
+
+@app.get("/api/docker/local-containers")
+def list_docker_local_containers():
+    """List containers currently running or stopped in local Docker Desktop"""
+    return DockerIntegrationService.list_local_containers()
+
+
+@app.get("/api/docker/local-images")
+def list_docker_local_images():
+    """List local Docker images stored on machine"""
+    return DockerIntegrationService.list_local_images()
 
 
 # ---------------- 3. Package Inventory & SBOM ----------------

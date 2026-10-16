@@ -7,12 +7,15 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 async function fetchJSON(endpoint, options = {}) {
   try {
+    const isFormData = options.body instanceof FormData;
+    const headers = { ...options.headers };
+    if (!isFormData && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const res = await fetch(`${API_BASE}${endpoint}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
       ...options,
+      headers,
     });
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({ detail: res.statusText }));
@@ -36,6 +39,19 @@ export const api = {
     fetchJSON(`/containers/register?name=${encodeURIComponent(name)}&image=${encodeURIComponent(image)}`, {
       method: 'POST',
     }),
+  uploadManifest: (file, containerName, imageName) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (containerName) formData.append('container_name', containerName);
+    if (imageName) formData.append('image_name', imageName);
+    return fetchJSON('/containers/upload-manifest', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+  getDockerDaemonStatus: () => fetchJSON('/docker/daemon-status'),
+  getDockerLocalContainers: () => fetchJSON('/docker/local-containers'),
+  getDockerLocalImages: () => fetchJSON('/docker/local-images'),
   isolateContainer: (id) => fetchJSON(`/containers/${id}/isolate`, { method: 'POST' }),
   restoreContainer: (id) => fetchJSON(`/containers/${id}/restore`, { method: 'POST' }),
 

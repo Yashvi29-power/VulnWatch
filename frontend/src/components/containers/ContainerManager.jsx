@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useVulnStore } from '../../state/useVulnStore';
 import { api } from '../../services/api';
 import { 
   Layers, ShieldAlert, ShieldCheck, Download, Zap, Play, 
-  Search, ExternalLink, RefreshCw, Cpu, Activity, AlertTriangle, CheckCircle 
+  Search, ExternalLink, RefreshCw, Cpu, Activity, AlertTriangle, 
+  CheckCircle, Upload, FileCode, HardDrive, Check, Terminal, Sparkles
 } from 'lucide-react';
 
 export default function ContainerManager() {
@@ -16,9 +17,23 @@ export default function ContainerManager() {
   const [sbom, setSbom] = useState(null);
   const [loadingSbom, setLoadingSbom] = useState(false);
   const [searchPkg, setSearchPkg] = useState('');
+  
+  // Registration & Upload Tab State
+  const [scanMode, setScanMode] = useState('registry'); // 'registry' | 'upload' | 'docker'
   const [newImageName, setNewImageName] = useState('');
   const [newContainerName, setNewContainerName] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
+  
+  // File Upload State
+  const [uploadFile, setUploadFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Docker Daemon State
+  const [dockerStatus, setDockerStatus] = useState(null);
+  const [localContainers, setLocalContainers] = useState([]);
+  const [localImages, setLocalImages] = useState([]);
+  const [loadingDocker, setLoadingDocker] = useState(false);
 
   // Fetch SBOM for currently selected container
   useEffect(() => {
@@ -38,6 +53,31 @@ export default function ContainerManager() {
 
     return () => { isMounted = false; };
   }, [selectedContainerId]);
+
+  // Fetch Docker daemon status
+  const checkDockerDaemon = async () => {
+    setLoadingDocker(true);
+    try {
+      const status = await api.getDockerDaemonStatus();
+      setDockerStatus(status);
+      if (status.available) {
+        const [cnts, imgs] = await Promise.all([
+          api.getDockerLocalContainers(),
+          api.getDockerLocalImages()
+        ]);
+        setLocalContainers(cnts);
+        setLocalImages(imgs);
+      }
+    } catch (e) {
+      setDockerStatus({ available: false, status: 'DISCONNECTED', message: 'Daemon unreachable' });
+    } finally {
+      setLoadingDocker(false);
+    }
+  };
+
+  useEffect(() => {
+    checkDockerDaemon();
+  }, []);
 
   const handleDownloadCycloneDX = async () => {
     try {
@@ -86,6 +126,47 @@ export default function ContainerManager() {
     }
   };
 
+  const handleFileUploadScan = async (e) => {
+    e.preventDefault();
+    if (!uploadFile) {
+      showToast('Please select a manifest file (Dockerfile, requirements.txt, package.json, or SBOM JSON)', 'error');
+      return;
+    }
+    setIsUploading(true);
+    try {
+      const res = await api.uploadManifest(uploadFile, newContainerName || null, newImageName || null);
+      showToast(
+        `File ${res.filename} scanned! Extracted ${res.packages_extracted} packages with ${res.critical_vulnerabilities} critical CVEs.`,
+        res.critical_vulnerabilities > 0 ? 'alert' : 'success'
+      );
+      setUploadFile(null);
+      setNewContainerName('');
+      setNewImageName('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      await refreshAll();
+      if (res.container?.id) {
+        setSelectedContainerId(res.container.id);
+      }
+    } catch (err) {
+      showToast(`Upload scan failed: ${err.message}`, 'error');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleImportLocalContainer = async (c) => {
+    setIsRegistering(true);
+    try {
+      await api.registerContainer(c.name, c.image);
+      showToast(`Imported local Docker container: ${c.name}`, 'success');
+      await refreshAll();
+    } catch (err) {
+      showToast(`Import failed: ${err.message}`, 'error');
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
   const selectedContainer = containers.find(c => c.id === selectedContainerId) || containers[0];
 
   const filteredPackages = sbom?.packages?.filter(p => 
@@ -97,42 +178,202 @@ export default function ContainerManager() {
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="font-orbitron font-bold text-lg text-white flex items-center gap-2">
-            <Layers className="w-5 h-5 text-cyan-400" />
-            <span>CONTAINER WORKLOADS & SBOM EXTRACTION</span>
-          </h2>
-          <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Software Bill of Materials inventory coverage with real-time runtime state correlation
-          </p>
+      {/* Header & Scanning Hub */}
+      <div className="cyber-glass-card rounded-2xl p-5 border border-cyan-500/20 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-3">
+          <div>
+            <h2 className="font-orbitron font-bold text-lg text-white flex items-center gap-2">
+              <Layers className="w-5 h-5 text-cyan-400" />
+              <span>CONTAINER WORKLOAD INGESTION & SCANNER</span>
+            </h2>
+            <p className="text-xs text-slate-400 font-mono mt-0.5">
+              Scan images by registry tag, upload local manifests (Dockerfile, package.json, requirements.txt), or sync local Docker daemon
+            </p>
+          </div>
+
+          {/* Docker Status Pill */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className={`px-2.5 py-1 rounded-full border text-xs font-mono flex items-center gap-1.5 ${
+              dockerStatus?.available
+                ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                : 'bg-slate-900 border-slate-700 text-slate-400'
+            }`}>
+              <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Docker Engine:</span>
+              <strong className={dockerStatus?.available ? 'text-emerald-400' : 'text-slate-400'}>
+                {dockerStatus?.available ? `Connected (${dockerStatus.running_containers} active)` : 'Desktop Offline'}
+              </strong>
+            </div>
+            <button
+              onClick={checkDockerDaemon}
+              disabled={loadingDocker}
+              className="p-1.5 text-slate-400 hover:text-cyan-300 rounded border border-slate-800 hover:bg-slate-900 cursor-pointer"
+              title="Refresh Docker Daemon Status"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingDocker ? 'animate-spin text-cyan-400' : ''}`} />
+            </button>
+          </div>
         </div>
 
-        {/* Register Container Quick Form */}
-        <form onSubmit={handleRegisterNewImage} className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="Pod Name (e.g., redis-cache)"
-            value={newContainerName}
-            onChange={(e) => setNewContainerName(e.target.value)}
-            className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-white placeholder:text-slate-500 focus:border-cyan-400 outline-none"
-          />
-          <input
-            type="text"
-            placeholder="Image (e.g., redis:7-alpine)"
-            value={newImageName}
-            onChange={(e) => setNewImageName(e.target.value)}
-            className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-white placeholder:text-slate-500 focus:border-cyan-400 outline-none"
-          />
+        {/* Scan Mode Switcher */}
+        <div className="flex items-center gap-2 pt-1">
           <button
-            type="submit"
-            disabled={isRegistering}
-            className="px-3.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-orbitron font-bold text-xs shrink-0 transition-colors cursor-pointer"
+            onClick={() => setScanMode('registry')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
+              scanMode === 'registry'
+                ? 'bg-cyan-950 text-cyan-300 border border-cyan-500/40 cyber-glow-cyan'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
           >
-            + SCAN IMAGE
+            1. Registry Image Tag
           </button>
-        </form>
+          <button
+            onClick={() => setScanMode('upload')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+              scanMode === 'upload'
+                ? 'bg-cyan-950 text-cyan-300 border border-cyan-500/40 cyber-glow-cyan'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <Upload className="w-3.5 h-3.5 text-cyan-400" />
+            <span>2. Upload File / Manifest</span>
+          </button>
+          <button
+            onClick={() => setScanMode('docker')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+              scanMode === 'docker'
+                ? 'bg-cyan-950 text-cyan-300 border border-cyan-500/40 cyber-glow-cyan'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <HardDrive className="w-3.5 h-3.5 text-indigo-400" />
+            <span>3. Docker Desktop Sync ({localContainers.length})</span>
+          </button>
+        </div>
+
+        {/* Scan Mode 1: Registry Tag Input */}
+        {scanMode === 'registry' && (
+          <form onSubmit={handleRegisterNewImage} className="flex flex-col sm:flex-row items-center gap-2 pt-1 animate-in fade-in">
+            <input
+              type="text"
+              placeholder="Pod Name (e.g. redis-cache, auth-gateway)"
+              value={newContainerName}
+              onChange={(e) => setNewContainerName(e.target.value)}
+              className="w-full sm:w-64 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white placeholder:text-slate-500 focus:border-cyan-400 outline-none"
+            />
+            <input
+              type="text"
+              placeholder="Docker Image Tag (e.g. redis:7-alpine, nginx:1.25, python:3.11)"
+              value={newImageName}
+              onChange={(e) => setNewImageName(e.target.value)}
+              className="w-full sm:flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white placeholder:text-slate-500 focus:border-cyan-400 outline-none"
+            />
+            <button
+              type="submit"
+              disabled={isRegistering || !newContainerName || !newImageName}
+              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-orbitron font-bold text-xs shrink-0 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {isRegistering ? 'EXTRACTING SBOM...' : '+ SCAN IMAGE TAG'}
+            </button>
+          </form>
+        )}
+
+        {/* Scan Mode 2: Real File / Manifest Upload */}
+        {scanMode === 'upload' && (
+          <form onSubmit={handleFileUploadScan} className="space-y-3 pt-1 animate-in fade-in text-xs font-mono">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                type="text"
+                placeholder="Workload / Pod Name (optional, defaults to filename)"
+                value={newContainerName}
+                onChange={(e) => setNewContainerName(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-400 outline-none"
+              />
+              <input
+                type="text"
+                placeholder="Target Image Label (e.g. custom-app:v1)"
+                value={newImageName}
+                onChange={(e) => setNewImageName(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-400 outline-none"
+              />
+            </div>
+
+            {/* Drag & Drop File Picker Box */}
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-cyan-500/30 hover:border-cyan-400/60 bg-slate-950/60 rounded-xl p-4 text-center cursor-pointer transition-all"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.json,Dockerfile,package.json,pom.xml"
+                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+              <div className="flex flex-col items-center justify-center gap-1.5">
+                <FileCode className="w-8 h-8 text-cyan-400" />
+                <span className="text-slate-200 font-semibold">
+                  {uploadFile ? `Selected: ${uploadFile.name} (${(uploadFile.size / 1024).toFixed(1)} KB)` : 'Click to select Dockerfile, requirements.txt, package.json, or SBOM JSON'}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Parses real packages, queries NIST NVD 2.0 API, calculates CVSS/EPSS scores, and correlates with runtime state.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 text-[11px]">
+                Supported: <code>Dockerfile</code>, <code>requirements.txt</code>, <code>package.json</code>, <code>CycloneDX/SPDX JSON</code>
+              </span>
+              <button
+                type="submit"
+                disabled={isUploading || !uploadFile}
+                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-orbitron font-bold text-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isUploading ? <RefreshCw className="w-3.5 h-3.5 animate-spin fill-black" /> : <Upload className="w-3.5 h-3.5 fill-black" />}
+                <span>{isUploading ? 'SCANNING MANIFEST PACKAGES...' : 'UPLOAD & SCAN MANIFEST'}</span>
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Scan Mode 3: Docker Desktop Live Containers */}
+        {scanMode === 'docker' && (
+          <div className="space-y-3 pt-1 animate-in fade-in text-xs font-mono">
+            {dockerStatus?.available ? (
+              <div>
+                <p className="text-slate-300 mb-2">
+                  Found <strong className="text-cyan-400">{localContainers.length}</strong> local containers in your machine's Docker engine. Click import to analyze any local container:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                  {localContainers.map((c) => (
+                    <div key={c.docker_id} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-white truncate max-w-[180px]">{c.name}</div>
+                        <div className="text-[11px] text-slate-400 truncate max-w-[180px]">{c.image}</div>
+                      </div>
+                      <button
+                        onClick={() => handleImportLocalContainer(c)}
+                        disabled={isRegistering}
+                        className="px-2.5 py-1 rounded bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-black font-bold text-[10px] transition-colors cursor-pointer"
+                      >
+                        IMPORT POD
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
+                <HardDrive className="w-8 h-8 text-slate-500 mx-auto" />
+                <p className="text-slate-300 font-semibold">Local Docker Desktop is not currently running</p>
+                <p className="text-[11px] text-slate-400 max-w-lg mx-auto">
+                  To scan real local containers from your machine, start Docker Desktop on Windows. In the meantime, you can scan any image tag or upload a <code>Dockerfile</code> or <code>requirements.txt</code> directly via the tabs above!
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Container Cards Grid */}
