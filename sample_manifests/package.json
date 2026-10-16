@@ -1,0 +1,13 @@
+{
+  "name": "auth-service-vulnerable",
+  "version": "1.0.0",
+  "description": "Sample Node.js service for VulnWatch security inspection",
+  "main": "server.js",
+  "dependencies": {
+    "express": "4.18.2",
+    "jsonwebtoken": "9.0.0",
+    "tough-cookie": "4.1.2",
+    "axios": "0.21.1",
+    "lodash": "4.17.20"
+  }
+}
